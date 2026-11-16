@@ -1,0 +1,267 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Authenticated platform user profile (PII-isolated to owner).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "activeOrganisationId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "UserMembership": {
+      "title": "UserMembership",
+      "description": "User-scoped index linking a user UID to an organisation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 256 },
+        "organisationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organisationName": { "type": "string", "maxLength": 160 },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin", "org_admin", "plant_head", "dept_head", "supervisor", "operator", "ehs_manager", "auditor", "viewer"]
+        },
+        "status": { "type": "string", "enum": ["active", "invited", "deactivated"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "organisationId", "organisationName", "userId", "role", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Organisation": {
+      "title": "Organisation",
+      "description": "Multi-tenant industrial enterprise tenant.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "slug": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^[a-z0-9\\-]+$" },
+        "industry": { "type": "string", "maxLength": 100 },
+        "country": { "type": "string", "maxLength": 80 },
+        "timezone": { "type": "string", "maxLength": 64 },
+        "activeModules": { "type": "object" },
+        "alertThresholds": { "type": "object" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "slug", "activeModules", "createdBy", "createdAt", "updatedAt"]
+    },
+    "OrgMember": {
+      "title": "OrgMember",
+      "description": "Authoritative organisation membership, role, and site/department assignment.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organisationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin", "org_admin", "plant_head", "dept_head", "supervisor", "operator", "ehs_manager", "auditor", "viewer"]
+        },
+        "siteIds": { "type": "array" },
+        "departmentIds": { "type": "array" },
+        "status": { "type": "string", "enum": ["active", "invited", "deactivated"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "organisationId", "email", "displayName", "role", "siteIds", "departmentIds", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Invitation": {
+      "title": "Invitation",
+      "description": "Employee invitation to join an organisation with pre-assigned role and sites.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organisationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organisationName": { "type": "string", "maxLength": 160 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "role": { "type": "string", "maxLength": 40 },
+        "siteIds": { "type": "array" },
+        "departmentIds": { "type": "array" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "revoked"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "organisationId", "organisationName", "email", "role", "siteIds", "departmentIds", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Site": {
+      "title": "Site",
+      "description": "Industrial plant or facility belonging to an organisation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organisationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "code": { "type": "string", "minLength": 2, "maxLength": 32 },
+        "location": { "type": "string", "maxLength": 200 },
+        "timezone": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "organisationId", "name", "code", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "Operational department within a site.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organisationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "siteId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "code": { "type": "string", "minLength": 2, "maxLength": 32 },
+        "headUserId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "organisationId", "siteId", "name", "code", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "OperationalRecord": {
+      "title": "OperationalRecord",
+      "description": "Structured operational document for Nexus, Environ, or Core workflows.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organisationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "siteId": { "type": "string", "maxLength": 128 },
+        "departmentId": { "type": "string", "maxLength": 128 },
+        "module": { "type": "string", "enum": ["core", "nexus", "environ"] },
+        "recordType": { "type": "string", "maxLength": 64 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdByName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "source": { "type": "string", "enum": ["manual", "ai_document", "system"] },
+        "status": { "type": "string", "maxLength": 40 },
+        "approvalStatus": { "type": "string", "enum": ["draft", "submitted", "pending_approval", "approved", "rejected", "closed"] },
+        "payload": { "type": "object" }
+      },
+      "required": ["id", "organisationId", "siteId", "module", "recordType", "createdBy", "createdAt", "updatedAt", "source", "status", "approvalStatus"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Owner-isolated user profile and PII."
+    },
+    "/user_memberships/{membershipId}": {
+      "schema": { "$ref": "#/entities/UserMembership" },
+      "description": "User-queryable index of organisation memberships."
+    },
+    "/invitations/{inviteId}": {
+      "schema": { "$ref": "#/entities/Invitation" },
+      "description": "Pending and accepted user invitations."
+    },
+    "/organisations/{orgId}": {
+      "schema": { "$ref": "#/entities/Organisation" },
+      "description": "Tenant organisation root document."
+    },
+    "/organisations/{orgId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/OrgMember" },
+      "description": "Authoritative RBAC membership inside an organisation."
+    },
+    "/organisations/{orgId}/sites/{siteId}": {
+      "schema": { "$ref": "#/entities/Site" },
+      "description": "Plant sites belonging to the organisation."
+    },
+    "/organisations/{orgId}/departments/{deptId}": {
+      "schema": { "$ref": "#/entities/Department" },
+      "description": "Departments belonging to a site within the organisation."
+    },
+    "/organisations/{orgId}/production_logs/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Nexus production logs."
+    },
+    "/organisations/{orgId}/shift_reports/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Nexus shift handover reports."
+    },
+    "/organisations/{orgId}/downtime_logs/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Nexus equipment downtime logs."
+    },
+    "/organisations/{orgId}/workforce_records/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Nexus workforce shift & attendance records."
+    },
+    "/organisations/{orgId}/visitor_records/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Nexus gate and visitor logs."
+    },
+    "/organisations/{orgId}/quality_logs/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Nexus quality inspection records and parameter configs."
+    },
+    "/organisations/{orgId}/lab_records/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Nexus laboratory test records."
+    },
+    "/organisations/{orgId}/safety_observations/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Environ safety observation records."
+    },
+    "/organisations/{orgId}/incidents/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Environ EHS incident reports."
+    },
+    "/organisations/{orgId}/work_permits/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Environ Permit-to-Work records."
+    },
+    "/organisations/{orgId}/compliance_records/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Environ compliance and certification tracking."
+    },
+    "/organisations/{orgId}/environmental_records/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Environ resource, waste, and emissions logs."
+    },
+    "/organisations/{orgId}/corrective_actions/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Environ corrective and preventive action plans."
+    },
+    "/organisations/{orgId}/tasks/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Core shared tasks across modules."
+    },
+    "/organisations/{orgId}/approvals/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Core shared approval workflow items."
+    },
+    "/organisations/{orgId}/notifications/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Core user notifications."
+    },
+    "/organisations/{orgId}/alerts/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Core deduplicated system alerts."
+    },
+    "/organisations/{orgId}/audit_logs/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Core immutable audit trail."
+    },
+    "/organisations/{orgId}/generated_reports/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Core immutable report snapshots and exports."
+    },
+    "/organisations/{orgId}/ai_extraction_jobs/{recordId}": {
+      "schema": { "$ref": "#/entities/OperationalRecord" },
+      "description": "Core AI document extraction jobs."
+    }
+  }
+}

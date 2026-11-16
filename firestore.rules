@@ -1,0 +1,602 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Deny all by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL PRIMITIVES ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSuperAdmin() {
+      return isEmailVerified() && request.auth.token.email == 'saswatlenkax22@gmail.com';
+    }
+
+    function memberPath(orgId, uid) {
+      return /databases/$(database)/documents/organisations/$(orgId)/members/$(uid);
+    }
+
+    function isOrgMember(orgId) {
+      return isSignedIn()
+        && exists(memberPath(orgId, request.auth.uid))
+        && get(memberPath(orgId, request.auth.uid)).data.status == 'active';
+    }
+
+    function memberRole(orgId) {
+      return get(memberPath(orgId, request.auth.uid)).data.role;
+    }
+
+    function memberSites(orgId) {
+      return get(memberPath(orgId, request.auth.uid)).data.siteIds;
+    }
+
+    function isOrgAdmin(orgId) {
+      return isSuperAdmin() || (isOrgMember(orgId) && memberRole(orgId) in ['super_admin', 'org_admin']);
+    }
+
+    function hasSiteAccess(orgId, siteId) {
+      return isOrgAdmin(orgId)
+        || (isOrgMember(orgId) && (siteId == 'ALL' || siteId in memberSites(orgId)));
+    }
+
+    function canWriteModule(orgId, mod) {
+      return isOrgAdmin(orgId) || (
+        isOrgMember(orgId) && (
+          (mod == 'nexus' && memberRole(orgId) in ['plant_head', 'dept_head', 'supervisor', 'operator']) ||
+          (mod == 'environ' && memberRole(orgId) in ['plant_head', 'dept_head', 'supervisor', 'ehs_manager']) ||
+          (mod == 'core' && memberRole(orgId) in ['plant_head', 'dept_head', 'supervisor', 'ehs_manager', 'operator'])
+        )
+      );
+    }
+
+    function canApproveModule(orgId, mod) {
+      return isOrgAdmin(orgId) || (
+        isOrgMember(orgId) && (
+          (mod == 'nexus' && memberRole(orgId) in ['plant_head', 'dept_head', 'supervisor']) ||
+          (mod == 'environ' && memberRole(orgId) in ['plant_head', 'dept_head', 'ehs_manager']) ||
+          (mod == 'core' && memberRole(orgId) in ['plant_head', 'dept_head', 'supervisor', 'ehs_manager'])
+        )
+      );
+    }
+
+    function isValidStringList(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is string);
+    }
+
+    // --- VALIDATION HELPERS ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'activeOrganisationId', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == request.auth.uid && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && (!('activeOrganisationId' in data) || (data.activeOrganisationId is string && data.activeOrganisationId.size() <= 128))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserMembership(data) {
+      return data.keys().hasAll(['id', 'organisationId', 'organisationName', 'userId', 'role', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'organisationId', 'organisationName', 'userId', 'role', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.organisationId)
+        && data.organisationName is string && data.organisationName.size() >= 1 && data.organisationName.size() <= 160
+        && isValidId(data.userId)
+        && data.role in ['super_admin', 'org_admin', 'plant_head', 'dept_head', 'supervisor', 'operator', 'ehs_manager', 'auditor', 'viewer']
+        && data.status in ['active', 'invited', 'deactivated']
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOrganisation(data) {
+      return data.keys().hasAll(['id', 'name', 'slug', 'activeModules', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'slug', 'industry', 'country', 'timezone', 'activeModules', 'alertThresholds', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 160
+        && data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 80 && data.slug.matches('^[a-z0-9\\-]+$')
+        && (!('industry' in data) || (data.industry is string && data.industry.size() <= 100))
+        && (!('country' in data) || (data.country is string && data.country.size() <= 80))
+        && (!('timezone' in data) || (data.timezone is string && data.timezone.size() <= 64))
+        && data.activeModules is map
+        && data.activeModules.keys().hasAll(['nexus', 'environ'])
+        && data.activeModules.keys().hasOnly(['nexus', 'environ'])
+        && data.activeModules.nexus is bool
+        && data.activeModules.environ is bool
+        && (!('alertThresholds' in data) || data.alertThresholds is map)
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOrgMember(data, orgId) {
+      return data.keys().hasAll(['userId', 'organisationId', 'email', 'displayName', 'role', 'siteIds', 'departmentIds', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'organisationId', 'email', 'displayName', 'role', 'siteIds', 'departmentIds', 'status', 'inviteId', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.userId)
+        && data.organisationId == orgId
+        && data.email is string && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.role in ['super_admin', 'org_admin', 'plant_head', 'dept_head', 'supervisor', 'operator', 'ehs_manager', 'auditor', 'viewer']
+        && isValidStringList(data.siteIds, 50)
+        && isValidStringList(data.departmentIds, 50)
+        && data.status in ['active', 'invited', 'deactivated']
+        && (!('inviteId' in data) || isValidId(data.inviteId))
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInvitation(data) {
+      return data.keys().hasAll(['id', 'organisationId', 'organisationName', 'email', 'role', 'siteIds', 'departmentIds', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'organisationId', 'organisationName', 'email', 'role', 'siteIds', 'departmentIds', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.organisationId)
+        && data.organisationName is string && data.organisationName.size() >= 1 && data.organisationName.size() <= 160
+        && data.email is string && data.email.size() <= 254
+        && data.role in ['org_admin', 'plant_head', 'dept_head', 'supervisor', 'operator', 'ehs_manager', 'auditor', 'viewer']
+        && isValidStringList(data.siteIds, 50)
+        && isValidStringList(data.departmentIds, 50)
+        && data.status in ['pending', 'accepted', 'revoked']
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSite(data, orgId) {
+      return data.keys().hasAll(['id', 'organisationId', 'name', 'code', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'organisationId', 'name', 'code', 'location', 'timezone', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.organisationId == orgId
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 140
+        && data.code is string && data.code.size() >= 2 && data.code.size() <= 32
+        && (!('location' in data) || (data.location is string && data.location.size() <= 200))
+        && (!('timezone' in data) || (data.timezone is string && data.timezone.size() <= 64))
+        && data.status in ['active', 'inactive']
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDepartment(data, orgId) {
+      return data.keys().hasAll(['id', 'organisationId', 'siteId', 'name', 'code', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'organisationId', 'siteId', 'name', 'code', 'headUserId', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.organisationId == orgId
+        && isValidId(data.siteId)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 140
+        && data.code is string && data.code.size() >= 2 && data.code.size() <= 32
+        && (!('headUserId' in data) || (data.headUserId is string && data.headUserId.size() <= 128))
+        && data.status in ['active', 'inactive']
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOperationalRecord(data, orgId, expectedMod) {
+      return data.keys().hasAll(['id', 'organisationId', 'siteId', 'module', 'recordType', 'createdBy', 'createdByName', 'createdAt', 'updatedAt', 'source', 'status', 'approvalStatus', 'payload'])
+        && data.keys().hasOnly(['id', 'organisationId', 'siteId', 'departmentId', 'module', 'recordType', 'createdBy', 'createdByName', 'createdAt', 'updatedAt', 'source', 'status', 'approvalStatus', 'payload'])
+        && isValidId(data.id)
+        && data.organisationId == orgId
+        && data.siteId is string && data.siteId.size() >= 1 && data.siteId.size() <= 128
+        && (!('departmentId' in data) || (data.departmentId is string && data.departmentId.size() <= 128))
+        && data.module == expectedMod
+        && data.recordType is string && data.recordType.size() >= 2 && data.recordType.size() <= 64
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 120
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.source in ['manual', 'ai_document', 'system']
+        && data.status is string && data.status.size() >= 1 && data.status.size() <= 40
+        && data.approvalStatus in ['draft', 'submitted', 'pending_approval', 'approved', 'rejected', 'closed']
+        && data.payload is map;
+    }
+
+    // --- TOP-LEVEL COLLECTIONS ---
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId
+        && isValidUser(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId
+        && isValidUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'activeOrganisationId', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /user_memberships/{membershipId} {
+      allow get: if isSignedIn() && isValidId(membershipId)
+        && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(membershipId)
+        && isValidUserMembership(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (incoming().userId == request.auth.uid && incoming().createdBy == request.auth.uid && existsAfter(/databases/$(database)/documents/organisations/$(incoming().organisationId)/members/$(request.auth.uid)))
+          || isOrgAdmin(incoming().organisationId)
+        );
+      allow update: if isSignedIn() && isValidId(membershipId)
+        && isValidUserMembership(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().createdBy == existing().createdBy
+        && incoming().organisationId == existing().organisationId
+        && incoming().userId == existing().userId
+        && incoming().updatedAt == request.time
+        && isOrgAdmin(existing().organisationId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'status', 'organisationName', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /invitations/{inviteId} {
+      allow get: if isSignedIn() && isValidId(inviteId)
+        && ((isEmailVerified() && existing().email == request.auth.token.email) || isOrgAdmin(existing().organisationId));
+      allow list: if isSignedIn()
+        && ((isEmailVerified() && resource.data.email == request.auth.token.email) || resource.data.createdBy == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(inviteId)
+        && isValidInvitation(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isOrgAdmin(incoming().organisationId);
+      allow update: if isSignedIn() && isValidId(inviteId)
+        && isValidInvitation(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().createdBy == existing().createdBy
+        && incoming().organisationId == existing().organisationId
+        && incoming().updatedAt == request.time
+        && (
+          (isEmailVerified() && existing().email == request.auth.token.email && existing().status == 'pending' && incoming().status == 'accepted'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+          || (isOrgAdmin(existing().organisationId) && existing().status != 'accepted'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'role', 'siteIds', 'departmentIds', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    // --- ORGANISATION ROOT & MULTI-TENANT SUBCOLLECTIONS ---
+    match /organisations/{orgId} {
+      allow get: if isSignedIn() && isValidId(orgId) && (isOrgMember(orgId) || isSuperAdmin());
+      allow list: if false;
+      allow create: if isSignedIn() && isValidId(orgId)
+        && isValidOrganisation(incoming())
+        && incoming().id == orgId
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/organisations/$(orgId)/members/$(request.auth.uid));
+      allow update: if isSignedIn() && isValidId(orgId)
+        && isValidOrganisation(incoming())
+        && incoming().id == existing().id
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && isOrgAdmin(orgId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'industry', 'country', 'timezone', 'activeModules', 'alertThresholds', 'updatedAt']);
+      allow delete: if false;
+
+      match /members/{memberId} {
+        allow get: if isSignedIn() && isValidId(memberId) && (memberId == request.auth.uid || isOrgMember(orgId) || isSuperAdmin());
+        allow list: if isSignedIn() && isOrgMember(orgId) && resource.data.organisationId == orgId;
+        allow create: if isSignedIn() && isValidId(memberId)
+          && isValidOrgMember(incoming(), orgId)
+          && incoming().userId == memberId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && (
+            (memberId == request.auth.uid && incoming().createdBy == request.auth.uid && incoming().role == 'org_admin'
+              && getAfter(/databases/$(database)/documents/organisations/$(orgId)).data.createdBy == request.auth.uid)
+            || (isEmailVerified() && memberId == request.auth.uid && incoming().createdBy == request.auth.uid && ('inviteId' in incoming())
+              && exists(/databases/$(database)/documents/invitations/$(incoming().inviteId))
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteId)).data.email == request.auth.token.email
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteId)).data.organisationId == orgId
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteId)).data.status == 'pending'
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteId)).data.role == incoming().role)
+            || isOrgAdmin(orgId)
+          );
+        allow update: if isSignedIn() && isValidId(memberId)
+          && isValidOrgMember(incoming(), orgId)
+          && incoming().userId == existing().userId
+          && incoming().organisationId == existing().organisationId
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && isOrgAdmin(orgId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'siteIds', 'departmentIds', 'status', 'displayName', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      match /sites/{siteId} {
+        allow get: if isSignedIn() && isValidId(siteId) && (isOrgMember(orgId) || isSuperAdmin());
+        allow list: if isSignedIn() && isOrgMember(orgId) && resource.data.organisationId == orgId;
+        allow create: if isSignedIn() && isValidId(siteId)
+          && isValidSite(incoming(), orgId)
+          && incoming().id == siteId
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && isOrgAdmin(orgId);
+        allow update: if isSignedIn() && isValidId(siteId)
+          && isValidSite(incoming(), orgId)
+          && incoming().id == existing().id
+          && incoming().organisationId == existing().organisationId
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && isOrgAdmin(orgId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'code', 'location', 'timezone', 'status', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      match /departments/{deptId} {
+        allow get: if isSignedIn() && isValidId(deptId) && (isOrgMember(orgId) || isSuperAdmin());
+        allow list: if isSignedIn() && isOrgMember(orgId) && resource.data.organisationId == orgId;
+        allow create: if isSignedIn() && isValidId(deptId)
+          && isValidDepartment(incoming(), orgId)
+          && incoming().id == deptId
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && (isOrgAdmin(orgId) || (isOrgMember(orgId) && memberRole(orgId) == 'plant_head'))
+          && exists(/databases/$(database)/documents/organisations/$(orgId)/sites/$(incoming().siteId));
+        allow update: if isSignedIn() && isValidId(deptId)
+          && isValidDepartment(incoming(), orgId)
+          && incoming().id == existing().id
+          && incoming().organisationId == existing().organisationId
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (isOrgAdmin(orgId) || (isOrgMember(orgId) && memberRole(orgId) == 'plant_head'))
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'code', 'siteId', 'headUserId', 'status', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      function allowOperationalGet(recordId) {
+        return isSignedIn() && isValidId(recordId)
+          && (isSuperAdmin() || (isOrgMember(orgId) && hasSiteAccess(orgId, existing().siteId)));
+      }
+
+      function allowOperationalList() {
+        return isSignedIn() && isOrgMember(orgId) && resource.data.organisationId == orgId;
+      }
+
+      function allowOperationalCreate(recordId, mod) {
+        return isSignedIn() && isValidId(recordId)
+          && isValidOperationalRecord(incoming(), orgId, mod)
+          && incoming().id == recordId
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && canWriteModule(orgId, mod)
+          && hasSiteAccess(orgId, incoming().siteId);
+      }
+
+      function allowOperationalUpdate(recordId, mod) {
+        return isSignedIn() && isValidId(recordId)
+          && isValidOperationalRecord(incoming(), orgId, mod)
+          && incoming().id == existing().id
+          && incoming().organisationId == existing().organisationId
+          && incoming().module == existing().module
+          && incoming().recordType == existing().recordType
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && hasSiteAccess(orgId, existing().siteId)
+          && (existing().approvalStatus != 'closed' || isOrgAdmin(orgId))
+          && (
+            isOrgAdmin(orgId)
+            || (canApproveModule(orgId, mod) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'approvalStatus', 'payload', 'updatedAt']))
+            || (canWriteModule(orgId, mod) && existing().createdBy == request.auth.uid && existing().approvalStatus in ['draft', 'submitted', 'rejected'] && incoming().approvalStatus in ['draft', 'submitted', 'pending_approval']
+              && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'approvalStatus', 'payload', 'siteId', 'departmentId', 'updatedAt']))
+          );
+      }
+
+      // --- NEXUS COLLECTIONS ---
+      match /production_logs/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'nexus');
+        allow update: if allowOperationalUpdate(recordId, 'nexus');
+        allow delete: if false;
+      }
+
+      match /shift_reports/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'nexus');
+        allow update: if allowOperationalUpdate(recordId, 'nexus');
+        allow delete: if false;
+      }
+
+      match /downtime_logs/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'nexus');
+        allow update: if allowOperationalUpdate(recordId, 'nexus');
+        allow delete: if false;
+      }
+
+      match /workforce_records/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'nexus');
+        allow update: if allowOperationalUpdate(recordId, 'nexus');
+        allow delete: if false;
+      }
+
+      match /visitor_records/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'nexus');
+        allow update: if allowOperationalUpdate(recordId, 'nexus');
+        allow delete: if false;
+      }
+
+      match /quality_logs/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'nexus');
+        allow update: if allowOperationalUpdate(recordId, 'nexus');
+        allow delete: if false;
+      }
+
+      match /lab_records/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'nexus');
+        allow update: if allowOperationalUpdate(recordId, 'nexus');
+        allow delete: if false;
+      }
+
+      // --- ENVIRON COLLECTIONS ---
+      match /safety_observations/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'environ');
+        allow update: if allowOperationalUpdate(recordId, 'environ');
+        allow delete: if false;
+      }
+
+      match /incidents/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'environ');
+        allow update: if allowOperationalUpdate(recordId, 'environ');
+        allow delete: if false;
+      }
+
+      match /work_permits/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'environ');
+        allow update: if allowOperationalUpdate(recordId, 'environ');
+        allow delete: if false;
+      }
+
+      match /compliance_records/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'environ');
+        allow update: if allowOperationalUpdate(recordId, 'environ');
+        allow delete: if false;
+      }
+
+      match /environmental_records/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'environ');
+        allow update: if allowOperationalUpdate(recordId, 'environ');
+        allow delete: if false;
+      }
+
+      match /corrective_actions/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'environ');
+        allow update: if allowOperationalUpdate(recordId, 'environ');
+        allow delete: if false;
+      }
+
+      // --- CORE SHARED COLLECTIONS ---
+      match /tasks/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'core');
+        allow update: if allowOperationalUpdate(recordId, 'core');
+        allow delete: if false;
+      }
+
+      match /approvals/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'core');
+        allow update: if allowOperationalUpdate(recordId, 'core');
+        allow delete: if false;
+      }
+
+      match /notifications/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'core');
+        allow update: if isSignedIn() && isValidId(recordId)
+          && isValidOperationalRecord(incoming(), orgId, 'core')
+          && incoming().id == existing().id
+          && incoming().organisationId == existing().organisationId
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && isOrgMember(orgId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'payload', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      match /alerts/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'core');
+        allow update: if allowOperationalUpdate(recordId, 'core');
+        allow delete: if false;
+      }
+
+      match /audit_logs/{recordId} {
+        allow get: if isSignedIn() && isValidId(recordId) && (isOrgMember(orgId) || isSuperAdmin());
+        allow list: if isSignedIn() && isOrgMember(orgId) && resource.data.organisationId == orgId;
+        allow create: if isSignedIn() && isValidId(recordId)
+          && isValidOperationalRecord(incoming(), orgId, 'core')
+          && incoming().id == recordId
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && isOrgMember(orgId);
+        allow update: if false;
+        allow delete: if false;
+      }
+
+      match /generated_reports/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if isSignedIn() && isValidId(recordId)
+          && isValidOperationalRecord(incoming(), orgId, 'core')
+          && incoming().id == recordId
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && isOrgMember(orgId) && !(memberRole(orgId) in ['viewer']);
+        allow update: if false;
+        allow delete: if false;
+      }
+
+      match /ai_extraction_jobs/{recordId} {
+        allow get: if allowOperationalGet(recordId);
+        allow list: if allowOperationalList();
+        allow create: if allowOperationalCreate(recordId, 'core');
+        allow update: if allowOperationalUpdate(recordId, 'core');
+        allow delete: if false;
+      }
+    }
+  }
+}

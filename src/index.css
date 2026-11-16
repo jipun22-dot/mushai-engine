@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+:root {
+  --radius: 0.5rem;
+  --background: #f9fafc;
+  --foreground: #070e16;
+  --card: #ffffff;
+  --card-foreground: #070e16;
+  --popover: #ffffff;
+  --popover-foreground: #070e16;
+  --primary: #070e16;
+  --primary-foreground: #fcfcfc;
+  --secondary: #edf2f8;
+  --secondary-foreground: #070e16;
+  --muted: #edf2f8;
+  --muted-foreground: #555f69;
+  --accent: #edf2f8;
+  --accent-foreground: #070e16;
+  --destructive: #e60018;
+  --destructive-foreground: #fcfcfc;
+  --border: #d9dfe5;
+  --input: #d9dfe5;
+  --ring: #070e16;
+
+  /* Mushai Module Accents (Preserved from Mushai Systems Website) */
+  --nexus: #e60018;
+  --nexus-soft: #fef2f2;
+  --nexus-border: #fecaca;
+  --environ: #007e46;
+  --environ-soft: #ecfdf5;
+  --environ-border: #a7f3d0;
+  --warning: #d97706;
+  --warning-soft: #fffbeb;
+  --warning-border: #fde68a;
+
+  /* Typography */
+  --font-display: "Michroma", "Sora", system-ui, sans-serif;
+  --font-heading: "Sora", system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.02em;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-heading {
+  font-family: var(--font-heading);
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

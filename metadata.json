@@ -1,0 +1,6 @@
+{
+  "name": "Mushai Systems",
+  "description": "Enterprise industrial operations and EHS compliance platform — Mushai Core, Nexus Manufacturing Operations, and Environ EHS & Sustainability.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
